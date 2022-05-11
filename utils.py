@@ -30,19 +30,18 @@ def slugify_path(path: Union[str, Path]) -> Path:
     """Slugifies every component of a path. Note that '../xxx' will get slugified to '/xxx'. Always use absolute paths."""
 
     path = Path(str(path).lower())
-    if Settings.is_true("SLUGIFY"):
-        os_path = "/".join(slugify(item) for item in str(path.parent).split("/"))
-        name = ".".join(slugify(item) for item in path.stem.split("."))
-        suffix = path.suffix
-
-        if name != "" and suffix != "":
-            return Path(os_path) / f"{name}{suffix}"
-        elif suffix == "":
-            return Path(os_path) / name
-        else:
-            return Path(os_path)
-    else:
+    if not Settings.is_true("SLUGIFY"):
         return path
+    os_path = "/".join(slugify(item) for item in str(path.parent).split("/"))
+    name = ".".join(slugify(item) for item in path.stem.split("."))
+    suffix = path.suffix
+
+    if name != "" and suffix != "":
+        return Path(os_path) / f"{name}{suffix}"
+    elif suffix == "":
+        return Path(os_path) / name
+    else:
+        return Path(os_path)
 
 
 # ---------------------------------------------------------------------------- #
@@ -125,7 +124,7 @@ class DocLink:
         parsed = line
         linked: List[str] = []
 
-        for link in cls.get_links(line):
+        for link in cls.get_links(parsed):
             abs_url = link.abs_url(doc_path)
             parsed = parsed.replace(
                 link.combined, f"[{link.title}]({abs_url}{link.header})"
@@ -150,9 +149,11 @@ class DocPath:
         # Take care of cases where Markdown file has a sibling directory of the same name
         if self.is_md and (self.old_path.parent / self.old_path.stem).is_dir():
             print(f"Name collision with sibling folder, renaming: {self.old_rel_path}")
-            new_rel_path = self.old_rel_path.parent / (
-                self.old_rel_path.stem + "-nested" + self.old_rel_path.suffix
+            new_rel_path = (
+                self.old_rel_path.parent
+                / f"{self.old_rel_path.stem}-nested{self.old_rel_path.suffix}"
             )
+
 
         self.new_rel_path = slugify_path(new_rel_path)
         self.new_path = docs_dir / str(self.new_rel_path)
@@ -163,7 +164,7 @@ class DocPath:
     def section_title(self) -> str:
         """Gets the title of the section."""
         title = str(self.old_rel_path).replace('"', r"\"")
-        return title if (title != "" and title != ".") else "main"
+        return title if title not in ["", "."] else "main"
 
     @property
     def section_sidebar(self) -> str:
@@ -173,7 +174,7 @@ class DocPath:
         sidebar = (
             sidebar.count("/") * Settings.options["SUBSECTION_SYMBOL"]
         ) + sidebar.split("/")[-1]
-        return sidebar if (sidebar != "" and sidebar != ".") else "main"
+        return sidebar if sidebar not in ["", "."] else "main"
 
     def write_to(self, child: str, content: Union[str, List[str]]):
         """Writes content to a child path under new path."""
@@ -191,14 +192,12 @@ class DocPath:
     def page_title(self) -> str:
         """Gets the title of the page."""
 
-        # The replacement might not be necessary, filenames cannot contain double quotes
-        title = " ".join(
+        return " ".join(
             [
                 item if item[0].isupper() else item.title()
                 for item in self.old_path.stem.split(" ")
             ]
         ).replace('"', r"\"")
-        return title
 
     @property
     def is_md(self) -> bool:
@@ -213,7 +212,7 @@ class DocPath:
     @property
     def content(self) -> List[str]:
         """Gets the lines of the file."""
-        return [line for line in open(self.old_path, "r").readlines()]
+        return list(open(self.old_path, "r").readlines())
 
     def write(self, content: Union[str, List[str]]):
         """Writes content to new path."""
@@ -299,11 +298,11 @@ class Settings:
         """
 
         for key in cls.options.keys():
-            required = cls.options[key] is None
-
             if key in environ:
                 cls.options[key] = environ[key]
             else:
+                required = cls.options[key] is None
+
                 if required:
                     raise Exception(f"FATAL ERROR: build.environment.{key} not set!")
         if cls.options["SITE_TITLE_TAB"] == "":
@@ -315,7 +314,7 @@ class Settings:
     def sub_line(cls, line: str) -> str:
         """Substitutes variable placeholders in a line."""
         for key, val in cls.options.items():
-            line = line.replace(f"___{key}___", val if val else "")
+            line = line.replace(f"___{key}___", val or "")
         return line
 
     @classmethod
@@ -377,7 +376,7 @@ def parse_graph(nodes: Dict[str, str], edges: List[Tuple[str, str]]):
     ]
 
     # Count the number of edges connected to each node
-    edge_counts = {k: 0 for k in nodes.keys()}
+    edge_counts = {k: 0 for k in nodes}
     for i, j in existing_edges:
         edge_counts[i] += 1
         edge_counts[j] += 1
